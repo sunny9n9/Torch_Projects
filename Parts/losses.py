@@ -1,5 +1,7 @@
 from .imports import torch
 
+__all__ = ['IntersectionOverUnion', 'DiceLoss']
+
 class DiceLoss(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -7,6 +9,12 @@ class DiceLoss(torch.nn.Module):
 
     def forward(self, label, pred):
         # dice score
+
+        # Handle the deep supervision list For UNET++, as we return list of outuput(multiple output from different layers) 
+        if isinstance(pred, list):
+            # currently taking average of all outputs, may use a weighted average for more tuning
+            return sum(self.forward(p, label) for p in pred) / len(pred)
+        
         pred_probab = torch.sigmoid(pred)
         pred_intersection = torch.mul(label, pred_probab)
         total_pred_intersection = torch.sum(pred_intersection)
@@ -54,3 +62,19 @@ class Mixed_Dice_Sigmoid(torch.nn.Module):
             accumulated_loss += (((1 - self.dice_weight) * bce) + (self.dice_weight * dice_loss))
         return 1/len(predicted_all) * accumulated_loss
     
+    # well this is a problem, torch convention is prediction first then actual, and i did actual first then prediction
+    # everywhere, i will have to "refactor" them all, vs code does not support this currently
+class MixedLoss(torch.nn.Module):
+    def __init__(self, *losses, weights : list):
+        super().__init__()
+        self.losses = {f"loss_{i}" for i, loss in enumerate(losses)}
+        self.weights = {f"weight_{i}" for i, weight in enumerate(weights)}
+        # i should normalize weights so that Sum = 1, or maybe not, it should work either way i guess
+
+    def forward(self, actual, prediction):
+        loss = 0
+        for loss, weight in zip(self.losses, self.weights):
+            loss += (weight * loss(actual, prediction))
+
+            return loss
+        
