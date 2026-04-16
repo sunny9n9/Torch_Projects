@@ -17,6 +17,18 @@ class DiceLoss(torch.nn.Module):
 
         return dice_loss
     
+class IntersectionOverUnion(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.epilon = 1e-6
+        
+    def forward(self, actual, prediction):
+        intersection = torch.sigmoid(prediction) * actual
+        total_overlap = torch.sigmoid(prediction) + actual
+        union = total_overlap - intersection
+        IoU =  intersection / (union + self.epilon)
+        return 1 - IoU
+
 class Mixed_Dice_Sigmoid(torch.nn.Module):
     def __init__(self, dice_weight = 0.5):
         super().__init__()

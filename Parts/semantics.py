@@ -1,7 +1,7 @@
 from .imports import torch, torchvision, OrderedDict
 from dataclasses import dataclass
 
-__all__ = ['Common_Module', 'U_NET_VANILLA_ENCODER', 'U_NET_VANILLA_DECODER', 'U_NET_VANILLA', 'U_NET_RESNET', 'U_NET_RESNET_ATTENTION', 'U_NET_PLUS_PLUS']
+__all__ = ['U_NET_VANILLA', 'U_NET_RESNET', 'U_NET_RESNET_ATTENTION', 'U_NET_PLUS_PLUS']
 
 class Common_Module(torch.nn.Module):
     def __init__(self, IN_CHANNEL, OUT_CHANNEL, KERNEL_SIZE = 3, PADDING = 1):
@@ -136,7 +136,7 @@ class AttentionGate(torch.nn.Module):
         )
         # self.addition = torch.add() done in foreward 
         self.pipe = torch.nn.Sequential(
-            torch.nn.ReLU(),
+            torch.nn.ReLU(True),
             torch.nn.Conv2d(in_channels=OUT_gx,
                             out_channels=1,
                             kernel_size=1),# one channel output because we want a (1 H W) map to overlay to each pixel of image
@@ -173,13 +173,13 @@ class Attention_Decoder(torch.nn.Module):
                                                 kernel_size=3,
                                                 padding=1),
                     'batch_norm_1' : torch.nn.BatchNorm2d(num_features=OUT_CHANNEL),
-                    'activation_1' : torch.nn.ReLU(),
+                    'activation_1' : torch.nn.ReLU(True),
                     'up_2' : torch.nn.Conv2d(in_channels=OUT_CHANNEL,
                                                 out_channels=OUT_CHANNEL,
                                                 kernel_size=3,
                                                 padding=1),
                     'batch_norm_2' : torch.nn.BatchNorm2d(num_features=OUT_CHANNEL),
-                    'activation_2' : torch.nn.ReLU(),
+                    'activation_2' : torch.nn.ReLU(True),
                 }
             )
         )
