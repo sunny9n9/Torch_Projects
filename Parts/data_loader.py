@@ -3,9 +3,10 @@ from .imports import os
 from .imports import cv2
 from .imports import torch
 from .imports import numpy as np
+from .imports import albumentations
 IMG_DIM = 512
 
-__all__ = ['DatasetLoader']
+__all__ = ['DatasetLoader', 'DatasetLoaderV2']
 
 class DatasetLoader(Dataset):
     # we inherit dataset wherein we need to define 2 functions-
@@ -45,4 +46,54 @@ class DatasetLoader(Dataset):
             # makes it (1, H, W) if no channels
 
         mask = mask[None, :, :].astype(np.float32) / 255.0
-        return torch.tensor(image), torch.tensor(mask)
+        return torch.tensor(image), torch.tensor(mask)    
+
+# well when augmenting data of medical field, we can't make stuff(s) look unrealistic, or actually that is the case for
+# every data actually, the point is we have to be a bit more conservative on how much we stretch and compress images
+# when augmenting data, we don't want model to learn absolute trash of organ structure, and we play around a bit more on
+# the field of noise and brightness as not every machine producing scan is same, so these are two important things to keep in mind
+# also the MASK must face the same changes as faced by input data, albumentaions(library) helps
+
+
+class DatasetLoaderV2(Dataset):
+    def __init__(self, data_dir, label_dir, dim, transformations=None):
+        super().__init__()
+        self.data_dir = data_dir
+        self.label_dir = label_dir
+        self.image_dim = dim
+        self.transform = transformations
+
+        self.data_files = sorted([f for f in os.listdir(data_dir) 
+                                 if os.path.isfile(os.path.join(data_dir, f))])
+        self.label_files = sorted([f for f in os.listdir(label_dir) 
+                                  if os.path.isfile(os.path.join(label_dir, f))])
+
+        self._basic_transform = albumentations.Compose([
+            albumentations.Resize(height=dim[1], width=dim[0]),
+            albumentations.Normalize(),
+            albumentations.ToTensorV2()
+        ])
+        # whole albumetations library assumes we are using cv2/numpy style inputs, not tensors, so .ToTensorV2() should
+        # be the absolute last step that we perform, if we do it in _basic_transform and then call some _further_transform
+        # the _further_transform will get tensors as input, so call it at last, after user transforms
+        
+
+    def __getitem__(self, index):
+        data_path = os.path.join(self.data_dir, self.data_files[index])
+        label_path = os.path.join(self.label_dir, self.label_files[index])
+
+        image = cv2.imread(data_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        mask = cv2.imread(label_path, cv2.IMREAD_GRAYSCALE)
+
+        if self.transform:
+            augmented = self.transform(image=image, mask=mask)
+            image, mask = augmented['image'], augmented['mask']
+
+        basic_augmented = self._basic_transform(image=image, mask=mask)
+        image, mask = basic_augmented['image'], basic_augmented['mask']
+        
+        return image, mask
+
+    def __len__(self):
+        return len(self.data_files)

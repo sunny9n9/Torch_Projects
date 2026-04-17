@@ -20,7 +20,7 @@ class EarlyStopping:
                 self.early_stop = True
         else:
             self.current_count = 0
-            self.best_loss = self.current_loss
+            self.best_loss = current_loss
             self.current_state = {'model_state_dict' : model.state_dict(),
                                   'lowest_loss' : self.best_loss}
             self.early_stop = False
@@ -40,9 +40,11 @@ class SaveState:
             'loss': current_loss
         }
         torch.save(self.model_states, self.model_name)
+
         if self.is_runtime_colab:
             from google.colab import files
             files.download(self.model_name)
+
     def __call__(self, *args):
         self.save(*args)
 
@@ -86,7 +88,7 @@ class TrainingLoop:
         
 
 class TrainingLoopAdvanced:
-    def __init__(self, model, loss, optimizer, epoch, earlystopping, save_iteration):
+    def __init__(self, model, loss, optimizer, epoch, earlystopper = None, saver = None):
         self.model = model
         self.loss = loss
         self.optimizer = optimizer
@@ -95,12 +97,13 @@ class TrainingLoopAdvanced:
         self.loss_val = [] # <- for validation loss (per epoch)
         self.epoch = epoch
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.early_stopping = earlystopping
-        self.save = save_iteration
+        self.early_stopping = earlystopper
+        self.save = saver
+        self.save_epoch = 2
         
         self.improvement = 0.05 # <- 5% improvement at least on each iteration
 
-    def train(self, data_loader, val_data_loader):
+    def train(self, data_loader, val_data_loader = None):
         '''
         beware all losses are accumulated, not averaged per sample, but per batch loss
         may cause problem if batch size vary in future
@@ -129,16 +132,24 @@ class TrainingLoopAdvanced:
                     bar.update(1)
                     self.loss_history.append(loss.item())
                 self.loss_history_epoch.append(loss_epoch)
+
                 if val_data_loader:
                     val_loss = self.validate(val_data_loader)
                     print(f":: current loss :: {loss} :: current validaton {val_loss} :: current epoch {epoch}")
                     if self.early_stopping(val_loss, self.model):
                         # then we need to stop the training loop
                         self.save(self.model, self.optimizer, epoch, val_loss)
+                        print(f":: State(s) Saved @ current loss :: {loss} @ current epoch {epoch}")
                         break
                 else:  
                     print(f":: current loss :: {loss} :: current epoch {epoch}")
 
+                if self.save:
+                    if epoch % self.save_epoch == 0:
+                        self._save(epoch, self.loss_val[-1])
+            if self.save:
+                self._save(numpy.inf, self.loss_val[-1])
+                
         
     def validate(self, val_data_loader):
         self.model.eval() # <<<==== need to put it out of eval mode
@@ -153,3 +164,7 @@ class TrainingLoopAdvanced:
         self.loss_val.append(val_loss)
         self.model.train() # <==== ready to train again
         return val_loss
+    
+    def _save(self, epoch, val_loss):
+        self.save(self.model, self.optimizer, epoch, val_loss)
+        print(f":: State(s) Saved @ current epoch :: {epoch} @ current val_loss :: {val_loss}")
