@@ -37,18 +37,19 @@ class Common_Module_BN(torch.nn.Module):
 class U_NET_VANILLA_ENCODER(torch.nn.Module):
     def __init__(self, IN_CHANNEL, OUT_CHANNEL, KERNEL_SIZE = 3, PADDING = 1):
         super().__init__()
-        self.downsample = Common_Module(IN_CHANNEL, OUT_CHANNEL, KERNEL_SIZE = 3, PADDING = 1)
+        self.downsample = Common_Module_BN(IN_CHANNEL, OUT_CHANNEL, KERNEL_SIZE, PADDING)
         self.pool = torch.nn.MaxPool2d(kernel_size=2) # kernel size 2 cuz halfing
         
     def forward(self, input):
         skip = self.downsample(input)
         out = self.pool(skip)
         return out, skip
+    
 class U_NET_VANILLA_DECODER(torch.nn.Module):
     def __init__(self, IN_CHANNEL, OUT_CHANNEL, KERNEL_SIZE = 3, PADDING = 1):
         super().__init__()
         self.upsample = torch.nn.ConvTranspose2d(in_channels=IN_CHANNEL, out_channels=OUT_CHANNEL, kernel_size=2, stride=2, padding=0)
-        self.pipe = Common_Module(2*OUT_CHANNEL, OUT_CHANNEL, KERNEL_SIZE = 3, PADDING = 1) # 2* to accomodate skip connecetion
+        self.pipe = Common_Module_BN(2*OUT_CHANNEL, OUT_CHANNEL, KERNEL_SIZE, PADDING) # 2* to accomodate skip connecetion
     def forward(self, input, skip):
         up = self.upsample(input)
         cat = torch.concat([up, skip], dim=1)
@@ -137,7 +138,7 @@ class Transformer_Encoder(torch.nn.Module):
     def __init__(self, EMBED_DIM = 512, num_heads=8):
         super().__init__()
         self.attention = torch.nn.MultiheadAttention(embed_dim=EMBED_DIM,
-                                        num_heads=num_heads)
+                                        num_heads=num_heads, batch_first=True)
         self.norm_1 = torch.nn.LayerNorm(EMBED_DIM)
         self.feedforward = torch.nn.Sequential(
             torch.nn.Linear(in_features=EMBED_DIM,

@@ -44,6 +44,8 @@ class Mixed_Dice_Sigmoid(torch.nn.Module):
         self.dice_weight = 0.5
 
     def forward(self, actual, predicted_all):
+        if not isinstance(predicted_all, list):
+            predicted_all = [predicted_all]
         accumulated_loss = 0 
         actual_flat = actual.view(actual.size(0), -1)
         def _dice_score(actual_flat, pred_flat):
@@ -64,6 +66,7 @@ class Mixed_Dice_Sigmoid(torch.nn.Module):
     
     # well this is a problem, torch convention is prediction first then actual, and i did actual first then prediction
     # everywhere, i will have to "refactor" them all, vs code does not support this currently
+    # ===================== NOT IMPLIMENTED ===========================
 class MixedLoss(torch.nn.Module):
     def __init__(self, *losses, weights : list):
         super().__init__()

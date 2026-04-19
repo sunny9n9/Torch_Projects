@@ -11,12 +11,13 @@ __all__ = ['DatasetLoader', 'DatasetLoaderV2']
 class DatasetLoader(Dataset):
     # we inherit dataset wherein we need to define 2 functions-
     # len and getitem which is gonna be used by torch
-    def __init__(self, image_dir, mask_dir, image_dim=(IMG_DIM, IMG_DIM)):
+    def __init__(self, image_dir, mask_dir, image_dim=(IMG_DIM, IMG_DIM), transform=None):
         self.image_dir = image_dir
         self.mask_dir = mask_dir
         self.image_size = image_dim
         self.images = sorted(os.listdir(image_dir))
         self.masks = sorted(os.listdir(mask_dir))
+        self.transformations = None
             # it assumes the size of self.images == self.masks and all names are same
             # also no misssing names or anything of sorts.
 
@@ -33,7 +34,11 @@ class DatasetLoader(Dataset):
         
         image = cv2.resize(image, self.image_size, interpolation=cv2.INTER_AREA)
         mask = cv2.resize(mask, self.image_size, interpolation=cv2.INTER_AREA)
-        
+
+        if self.transform:
+            augmented = self.transform(image=image, mask=mask)
+            image, mask = augmented['image'], augmented['mask']
+
         try:
             image = image.transpose(2, 0, 1).astype(np.float32) / 255.0
             # transpose(2, 0, 1) cuz tf/opencv -> H W C
@@ -90,8 +95,12 @@ class DatasetLoaderV2(Dataset):
             augmented = self.transform(image=image, mask=mask)
             image, mask = augmented['image'], augmented['mask']
 
+        # normalizes fucking image only, wasted whole day on exploding gradient and negative loss
+        # cuz it won't normalize masks implicitly
         basic_augmented = self._basic_transform(image=image, mask=mask)
         image, mask = basic_augmented['image'], basic_augmented['mask']
+        mask = mask[None, ...] # cuz 2d(bw image)
+        mask = mask.float() / 255.0
         
         return image, mask
 

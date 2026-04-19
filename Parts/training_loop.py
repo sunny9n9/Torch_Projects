@@ -1,4 +1,5 @@
 from .imports import torch, tqdm, numpy
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 __all__ = ['TrainingLoop', 'TrainingLoopAdvanced', 'SaveState', 'EarlyStopping']
 
@@ -32,16 +33,18 @@ class SaveState:
         self.model_name = name
         self.is_runtime_colab = colab
 
-    def save(self, model, optmizer, epoch, current_loss):
+    def save(self, model, optmizer, epoch, trainer):
         self.model_states = {
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optmizer.state_dict(),
-            'loss': current_loss
+            'loss_history_epoch' : trainer.loss_history_epoch,
+            'batch_loss' : trainer.loss_history, # (per epoch)
+            'val_loss' : trainer.loss_val
         }
         torch.save(self.model_states, self.model_name)
 
-        if self.is_runtime_colab:
+        if self.is_runtime_colab: # <-----------------------------------
             from google.colab import files
             files.download(self.model_name)
 
@@ -53,42 +56,42 @@ class TrainingLoop:
         self.model = model
         self.loss = loss
         self.optimizer = optimizer
-        self.loss_history = [] # <- for per batch loss
-        self.loss_hitory_epoch = [] # <- for per epoch loss
+        self.batch_loss = [] # <- for per batch loss
+        self.loss_history_epoch = [] # <- for per epoch loss
         self.epoch = epoch
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     def train(self, data_loader):
         self.model.to(self.device)
-        # self.model.train()
+        self.model.train() # redundancy is better than regret
 
         batch_size = len(data_loader)
         total_steps = batch_size * self.epoch
         with tqdm.tqdm(total=total_steps) as bar:
             for epoch in range(self.epoch):
-                loss_epoch = 0
-                for data, label in data_loader:
+                loss_this_epoch = 0
+                for batch_number, (data, label) in enumerate(data_loader):
                     data = data.to(self.device)
                     label = label.to(self.device)
 
                     self.optimizer.zero_grad()
 
                     prediction = self.model(data)
-                    loss = self.loss(label, prediction)
-                    loss.backward()
+                    loss_this_batch = self.loss(label, prediction)
+                    loss_this_batch.backward()
 
                     self.optimizer.step()
 
-                    loss_epoch += loss.item()
+                    loss_this_epoch += loss_this_batch.item()
 
                     bar.update(1)
-                self.loss_history.append(loss.item())
-            self.loss_history.append(loss_epoch)
-            print(f":: current loss :: {loss} :: current epoch {epoch}")
+                    bar.set_postfix_str(f":: current loss :: {loss_this_batch.item()} :: current epoch {epoch} :: current batch {batch_number}")
+                    self.batch_loss.append(loss_this_batch.item())
+                self.loss_history_epoch.append(loss_this_epoch)
         
 
 class TrainingLoopAdvanced:
-    def __init__(self, model, loss, optimizer, epoch, earlystopper = None, saver = None):
+    def __init__(self, model, loss, optimizer, epoch, earlystopper : EarlyStopping = None, saver : SaveState = None):
         self.model = model
         self.loss = loss
         self.optimizer = optimizer
@@ -100,6 +103,7 @@ class TrainingLoopAdvanced:
         self.early_stopping = earlystopper
         self.save = saver
         self.save_epoch = 2
+        self.lr_scheduler = ReduceLROnPlateau(self.optimizer, 'min', patience=2)
         
         self.improvement = 0.05 # <- 5% improvement at least on each iteration
 
@@ -109,51 +113,69 @@ class TrainingLoopAdvanced:
         may cause problem if batch size vary in future
         '''
         self.model.to(self.device)
-        self.model.train()
+        self.model.train() # redundancy is better than regret
 
         batch_size = len(data_loader)
         total_steps = batch_size * self.epoch
+        
         with tqdm.tqdm(total=total_steps) as bar:
             for epoch in range(self.epoch):
-                loss_epoch = 0
-                for data, label in data_loader:
+                loss_this_epoch = 0
+                
+                for batch_number, (data, label) in enumerate(data_loader): ### BEWARE IN CASE OF DIFFERENT LEN BATCHES (for logging loss)
                     data = data.to(self.device)
                     label = label.to(self.device)
 
                     self.optimizer.zero_grad()
 
                     prediction = self.model(data)
-                    loss = self.loss(label, prediction)
-                    loss.backward()
+                    loss_this_batch = self.loss(label, prediction)
+                    loss_this_batch.backward()
 
                     self.optimizer.step()
 
-                    loss_epoch += loss.item()
-                    bar.update(1)
-                    self.loss_history.append(loss.item())
-                self.loss_history_epoch.append(loss_epoch)
+                    loss_this_epoch += loss_this_batch.item()
 
+                    bar.update(1)
+                    # Update bar in-place using postfix_str
+                    bar.set_postfix_str(f"Loss:: {loss_this_batch.item()} :: Epoch :: {epoch} :: Batch :: {batch_number}")
+                    
+                    self.loss_history.append(loss_this_batch.item())
+                
+                self.loss_history_epoch.append(loss_this_epoch)
+
+                # Validation and Early Stopping Logic
                 if val_data_loader:
                     val_loss = self.validate(val_data_loader)
-                    print(f":: current loss :: {loss} :: current validaton {val_loss} :: current epoch {epoch}")
-                    if self.early_stopping(val_loss, self.model):
-                        # then we need to stop the training loop
-                        self.save(self.model, self.optimizer, epoch, val_loss)
-                        print(f":: State(s) Saved @ current loss :: {loss} @ current epoch {epoch}")
-                        break
-                else:  
-                    print(f":: current loss :: {loss} :: current epoch {epoch}")
+                    bar.write(f":: Epoch {epoch} :: Train Loss {loss_this_epoch} :: Val Loss {val_loss}")
 
+                    # might as well tune learning rate
+                    self.lr_scheduler.step(val_loss)
+                    
+                    if self.early_stopping is not None:
+                        if self.early_stopping(val_loss, self.model):
+                            self._save(epoch)
+                            bar.write(f":: Early Stopping Triggered @ epoch {epoch}")
+                            break
+                else:  
+                    bar.write(f":: current loss :: {loss_this_epoch} :: current epoch {epoch}")
+
+                # Periodic Saving
                 if self.save:
                     if epoch % self.save_epoch == 0:
-                        self._save(epoch, self.loss_val[-1])
+                        # Use val_loss if available, else use train loss
+                        monitor_loss = self.loss_val[-1] if self.loss_val else loss_this_epoch
+                        self._save(epoch)
+
+            # Final Save after loop completion (if no early stopping used)
             if self.save:
-                self._save(numpy.inf, self.loss_val[-1])
+                final_monitor_loss = self.loss_val[-1] if self.loss_val else self.loss_history_epoch[-1]
+                self._save(numpy.inf)
                 
         
     def validate(self, val_data_loader):
-        self.model.eval() # <<<==== need to put it out of eval mode
-        val_loss = 0 # <- per epoch val loss
+        self.model.eval() 
+        val_loss = 0 
         with torch.no_grad():
             for data, label in val_data_loader:
                 data = data.to(self.device)
@@ -161,10 +183,11 @@ class TrainingLoopAdvanced:
                 prediction = self.model(data)
                 loss = self.loss(label, prediction)
                 val_loss += loss.item()
+        
         self.loss_val.append(val_loss)
-        self.model.train() # <==== ready to train again
+        self.model.train() 
         return val_loss
     
-    def _save(self, epoch, val_loss):
-        self.save(self.model, self.optimizer, epoch, val_loss)
-        print(f":: State(s) Saved @ current epoch :: {epoch} @ current val_loss :: {val_loss}")
+    def _save(self, epoch):
+        self.save(self.model, self.optimizer, epoch, self)
+        
