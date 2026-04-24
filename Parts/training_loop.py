@@ -4,7 +4,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 __all__ = ['TrainingLoop', 'TrainingLoopAdvanced', 'SaveState', 'EarlyStopping']
 
 class EarlyStopping:
-    def __init__(self, patience = 3, delta = 0):
+    def __init__(self, patience = 3, delta = 0.05):
         self.patience = patience
         self.best_loss = numpy.inf
         self.current_count = 0
@@ -15,7 +15,7 @@ class EarlyStopping:
     def __call__(self, current_loss, model):
         # makes instance of this class callable
         
-        if current_loss >= (self.best_loss - self.delta):
+        if current_loss >= (self.best_loss - (self.delta * self.best_loss)):
             self.current_count += 1
             if self.current_count > self.patience:
                 self.early_stop = True
@@ -56,7 +56,7 @@ class TrainingLoop:
         self.model = model
         self.loss = loss
         self.optimizer = optimizer
-        self.batch_loss = [] # <- for per batch loss
+        self.loss_history = [] # <- for per batch loss
         self.loss_history_epoch = [] # <- for per epoch loss
         self.epoch = epoch
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -86,7 +86,7 @@ class TrainingLoop:
 
                     bar.update(1)
                     bar.set_postfix_str(f":: current loss :: {loss_this_batch.item()} :: current epoch {epoch} :: current batch {batch_number}")
-                    self.batch_loss.append(loss_this_batch.item())
+                    self.loss_history.append(loss_this_batch.item())
                 self.loss_history_epoch.append(loss_this_epoch)
         
 
@@ -142,12 +142,13 @@ class TrainingLoopAdvanced:
                     
                     self.loss_history.append(loss_this_batch.item())
                 
-                self.loss_history_epoch.append(loss_this_epoch)
+                loss_this_epoch_normalized = loss_this_epoch / len(data_loader)
+                self.loss_history_epoch.append(loss_this_epoch_normalized)
 
                 # Validation and Early Stopping Logic
                 if val_data_loader:
                     val_loss = self.validate(val_data_loader)
-                    bar.write(f":: Epoch {epoch} :: Train Loss {loss_this_epoch} :: Val Loss {val_loss}")
+                    bar.write(f":: Epoch {epoch} :: Train Loss {loss_this_epoch_normalized} :: Val Loss {val_loss}")
 
                     # might as well tune learning rate
                     self.lr_scheduler.step(val_loss)
@@ -158,7 +159,7 @@ class TrainingLoopAdvanced:
                             bar.write(f":: Early Stopping Triggered @ epoch {epoch}")
                             break
                 else:  
-                    bar.write(f":: current loss :: {loss_this_epoch} :: current epoch {epoch}")
+                    bar.write(f":: current loss :: {loss_this_epoch_normalized} :: current epoch {epoch}")
 
                 # Periodic Saving
                 if self.save:
@@ -183,10 +184,11 @@ class TrainingLoopAdvanced:
                 prediction = self.model(data)
                 loss = self.loss(label, prediction)
                 val_loss += loss.item()
-        
-        self.loss_val.append(val_loss)
+                
+        val_loss_normalized = val_loss
+        self.loss_val.append(val_loss_normalized)
         self.model.train() 
-        return val_loss
+        return val_loss_normalized
     
     def _save(self, epoch):
         self.save(self.model, self.optimizer, epoch, self)
