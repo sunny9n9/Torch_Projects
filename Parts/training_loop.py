@@ -96,8 +96,8 @@ class TrainingLoopAdvanced:
         self.loss = loss
         self.optimizer = optimizer
         self.loss_history = [] # <- for per batch loss
-        self.loss_history_epoch = [] # <- for per epoch loss
-        self.loss_val = [] # <- for validation loss (per epoch)
+        self.loss_history_epoch = [] # <- for per epoch loss (avg)
+        self.loss_val = [] # <- for validation loss (per epoch, avg)
         self.epoch = epoch
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.early_stopping = earlystopper
@@ -140,9 +140,9 @@ class TrainingLoopAdvanced:
                     # Update bar in-place using postfix_str
                     bar.set_postfix_str(f"Loss:: {loss_this_batch.item()} :: Epoch :: {epoch} :: Batch :: {batch_number}")
                     
-                    self.loss_history.append(loss_this_batch.item())
+                    self.loss_history.append(loss_this_batch.item() * len(data)) # * len() to have weighted append incase diff sized batches
                 
-                loss_this_epoch_normalized = loss_this_epoch / len(data_loader)
+                loss_this_epoch_normalized = loss_this_epoch / len(data_loader.dataset) # .dataset as each batch = all samples
                 self.loss_history_epoch.append(loss_this_epoch_normalized)
 
                 # Validation and Early Stopping Logic
@@ -151,7 +151,8 @@ class TrainingLoopAdvanced:
                     bar.write(f":: Epoch {epoch} :: Train Loss {loss_this_epoch_normalized} :: Val Loss {val_loss}")
 
                     # might as well tune learning rate
-                    self.lr_scheduler.step(val_loss)
+                    if self.lr_scheduler is not None:
+                        self.lr_scheduler.step(val_loss)
                     
                     if self.early_stopping is not None:
                         if self.early_stopping(val_loss, self.model):
@@ -165,7 +166,7 @@ class TrainingLoopAdvanced:
                 if self.save:
                     if epoch % self.save_epoch == 0:
                         # Use val_loss if available, else use train loss
-                        monitor_loss = self.loss_val[-1] if self.loss_val else loss_this_epoch
+                        monitor_loss = self.loss_val[-1] if self.loss_val else loss_this_epoch_normalized
                         self._save(epoch)
 
             # Final Save after loop completion (if no early stopping used)
@@ -183,9 +184,9 @@ class TrainingLoopAdvanced:
                 label = label.to(self.device)
                 prediction = self.model(data)
                 loss = self.loss(label, prediction)
-                val_loss += loss.item()
+                val_loss += (loss.item() * len(data))
                 
-        val_loss_normalized = val_loss
+        val_loss_normalized = val_loss / len(val_data_loader.dataset)
         self.loss_val.append(val_loss_normalized)
         self.model.train() 
         return val_loss_normalized

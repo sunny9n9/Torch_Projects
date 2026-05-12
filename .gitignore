@@ -1,3 +1,5 @@
-Dataset/archive(1).zip
+Dataset/
+images/
+model_weights/
 SimpleUNet
 Parts.zip

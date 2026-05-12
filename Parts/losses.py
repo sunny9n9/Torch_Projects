@@ -1,6 +1,6 @@
 from .imports import torch
 
-__all__ = ['IntersectionOverUnion', 'DiceLoss']
+__all__ = ['IntersectionOverUnion', 'DiceLoss', 'MixedLoss']
 
 class DiceLoss(torch.nn.Module):
     def __init__(self):
