@@ -91,7 +91,7 @@ class TrainingLoop:
         
 
 class TrainingLoopAdvanced:
-    def __init__(self, model, loss, optimizer, epoch, earlystopper : EarlyStopping = None, saver : SaveState = None):
+    def __init__(self, model, loss, optimizer, epoch, earlystopper : EarlyStopping = None, saver : SaveState = None, lrscheduler : torch.optim.lr_scheduler = None):
         self.model = model
         self.loss = loss
         self.optimizer = optimizer
@@ -103,7 +103,7 @@ class TrainingLoopAdvanced:
         self.early_stopping = earlystopper
         self.save = saver
         self.save_epoch = 2
-        self.lr_scheduler = ReduceLROnPlateau(self.optimizer, 'min', patience=2)
+        self.lr_scheduler = ReduceLROnPlateau(self.optimizer, 'min', patience=2) if lrscheduler is None else lrscheduler 
         
         self.improvement = 0.05 # <- 5% improvement at least on each iteration
 
@@ -152,7 +152,10 @@ class TrainingLoopAdvanced:
 
                     # might as well tune learning rate
                     if self.lr_scheduler is not None:
-                        self.lr_scheduler.step(val_loss)
+                        if isinstance(self.lr_scheduler, ReduceLROnPlateau):
+                            self.lr_scheduler.step(val_loss)
+                        else:
+                            self.lr_scheduler.step()  # CosineAnnealingLR
                     
                     if self.early_stopping is not None:
                         if self.early_stopping(val_loss, self.model):
