@@ -8,34 +8,30 @@ class DiceLoss(torch.nn.Module):
         self.epsilon = 1e-6
 
     def forward(self, label, pred):
-        # dice score
-
-        # Handle the deep supervision list For UNET++, as we return list of outuput(multiple output from different layers) 
         if isinstance(pred, list):
-            # currently taking average of all outputs, may use a weighted average for more tuning
-            return sum(self.forward(p, label) for p in pred) / len(pred)
-        
-        pred_probab = torch.sigmoid(pred)
-        pred_intersection = torch.mul(label, pred_probab)
-        total_pred_intersection = torch.sum(pred_intersection)
-        total_label_acutal_and_predicted = torch.sum(pred_probab) + torch.sum(label)
+            return sum(self.forward(label, p) for p in pred) / len(pred)
 
-        dice_score = (2*total_pred_intersection)/(total_label_acutal_and_predicted + self.epsilon)
-        dice_loss = 1 - dice_score
+        pred_prob = torch.sigmoid(pred)
 
-        return dice_loss
+        B = pred_prob.shape[0]
+        intersection = (label * pred_prob).view(B, -1).sum(dim=1)
+        denom = (pred_prob + label).view(B, -1).sum(dim=1)
+        dice_score = (2 * intersection) / (denom + self.epsilon) 
+        return (1 - dice_score).mean()           
     
 class IntersectionOverUnion(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.epilon = 1e-6
+        self.epsilon = 1e-6
         
     def forward(self, actual, prediction):
-        intersection = torch.sigmoid(prediction) * actual
-        total_overlap = torch.sigmoid(prediction) + actual
-        union = total_overlap - intersection
-        IoU =  intersection / (union + self.epilon)
-        return 1 - IoU
+        pred_prob = torch.sigmoid(prediction)
+        
+        B = pred_prob.shape[0]
+        intersection = (pred_prob * actual).view(B, -1).sum(dim=1) 
+        union = (pred_prob + actual).view(B, -1).sum(dim=1) - intersection
+        iou = intersection / (union + self.epsilon)
+        return (1 - iou).mean()        
 
 class Mixed_Dice_Sigmoid(torch.nn.Module):
     def __init__(self, dice_weight = 0.5):
