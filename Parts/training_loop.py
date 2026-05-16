@@ -134,13 +134,13 @@ class TrainingLoopAdvanced:
 
                     self.optimizer.step()
 
-                    loss_this_epoch += loss_this_batch.item()
+                    loss_this_epoch += loss_this_batch.item() * len(data)
 
                     bar.update(1)
                     # Update bar in-place using postfix_str
                     bar.set_postfix_str(f"Loss:: {loss_this_batch.item()} :: Epoch :: {epoch} :: Batch :: {batch_number}")
                     
-                    self.loss_history.append(loss_this_batch.item() * len(data)) # * len() to have weighted append incase diff sized batches
+                    self.loss_history.append(loss_this_batch.item())
                 
                 loss_this_epoch_normalized = loss_this_epoch / len(data_loader.dataset) # .dataset as each batch = all samples
                 self.loss_history_epoch.append(loss_this_epoch_normalized)

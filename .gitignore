@@ -4,3 +4,5 @@ model_weights/
 SimpleUNet
 Parts.zip
 model_comparison.ipynb
+old_weights/
+*.png
